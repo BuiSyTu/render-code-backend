@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Code Render Tool</title>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/default.min.css">
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            height: 100vh;
+        }
+
+        .container {
+            display: flex;
+            flex: 1;
+            height: 100%;
+        }
+
+        .input-section,
+        .output-section {
+            flex: 1;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        .input-section {
+            border-right: 1px solid #ccc;
+        }
+
+        #name-space {
+            width: calc(100% - 12px);
+            margin-bottom: 16px;
+            padding: 6px;
+        }
+
+        textarea,
+        pre {
+            width: 100%;
+            height: 90%;
+            box-sizing: border-box;
+            font-family: monospace;
+            font-size: 14px;
+            line-height: 1.5;
+            padding: 10px;
+        }
+
+        textarea {
+            resize: none;
+            height: 80%;
+        }
+
+        pre {
+            overflow: auto;
+            background: #f5f5f5;
+            border: 1px solid #ccc;
+        }
+
+        button {
+            margin-top: 10px;
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <!-- Input Section -->
+        <div class="input-section">
+            <h3>Input</h3>
+            <input id="name-space" placeholder="Nhập namespace">
+            <textarea id="inputArea" placeholder="Nhập dữ liệu JSON hoặc nội dung đầu vào..."></textarea>
+            <button onclick="renderCode()">Render Code</button>
+        </div>
+
+        <!-- Output Section -->
+        <div class="output-section">
+            <h3>Output</h3>
+            <pre><code  id="outputArea" class="language-csharp"></code></pre>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+
+    <script>
+        const outputArea = document.getElementById("outputArea");
+
+        function extractProperties(input) {
+            const lines = input.split('\n');
+            const properties = [];
+            const classLine = lines.find(line => line.trim().startsWith("public class"));
+            const className = classLine.match(/public class (\w+)/)[1];
+
+            lines.forEach(line => {
+                const match = line.match(/public\s+([\w<>?]+)\s+(\w+)\s*\{.*\}/);
+                if (match) {
+                    properties.push({ type: match[1], name: match[2] });
+                }
+            });
+
+            return { className, properties };
+        }
+
+        function renderCode() {
+            const inputArea = document.getElementById("inputArea");
+            const input = inputArea.value.trim();
+            const { className, properties } = extractProperties(input);
+
+            const nameSpaceArea = document.getElementById("name-space");
+            const namespace = nameSpaceArea.value.trim();
+
+            if (!properties || !className) return;
+
+            const result =
+                `
+// Create${className}Request
+namespace ${namespace}.${className}s
+{
+    public class Create${className}Request : IRequest<Guid>
+    {
+        ${generateProperties(properties)}
+    }
+
+    public class Create${className}RequestValidator : CustomValidator<Create${className}Request>
+    {
+        public Create${className}RequestValidator(IReadRepository<${className}> repository, IStringLocalizer<Create${className}RequestValidator> T)
+        {
+        }
+    }
+
+    public class Create${className}RequestHandler : IRequestHandler<Create${className}Request, Guid>
+    {
+        private readonly IRepositoryWithEvents<${className}> _repository;
+
+        public Create${className}RequestHandler(IRepositoryWithEvents<${className}> repository)
+        {
+            _repository = repository;
+        }
+
+        public async Task<Guid> Handle(Create${className}Request request, CancellationToken cancellationToken)
+        {
+            ${className} item = request.Adapt<${className}>();
+            await _repository.AddAsync(item, cancellationToken);
+            return item.Id;
+        }
+    }
+}
+
+// Delete${className}Request
+namespace ${namespace}.${className}s
+{
+    public class Delete${className}Request : IRequest<Guid>
+    {
+        public Guid Id { get; set; }
+
+        public Delete${className}Request(Guid id) => Id = id;
+    }
+
+    public class Delete${className}RequestHandler : IRequestHandler<Delete${className}Request, Guid>
+    {
+        private readonly IRepositoryWithEvents<${className}> _repository;
+        private readonly IStringLocalizer _t;
+
+        public Delete${className}RequestHandler(IRepositoryWithEvents<${className}> repository, IStringLocalizer<Delete${className}RequestHandler> localizer)
+        {
+            _repository = repository;
+            _t = localizer;
+        }
+
+        public async Task<Guid> Handle(Delete${className}Request request, CancellationToken cancellationToken)
+        {
+            ${className}? item = await _repository.GetByIdAsync(request.Id, cancellationToken);
+            _ = item ?? throw new NotFoundException(_t["${className} {0} Not Found."]);
+            await _repository.DeleteAsync(item, cancellationToken);
+            return request.Id;
+        }
+    }
+}
+
+// ${className}Dto
+namespace ${namespace}.${className}s
+{
+    public class ${className}Dto : IDto
+    {
+        public Guid Id { get; set; }
+${generateProperties(properties)}
+    }
+}
+
+// Get${className}Request
+namespace ${namespace}.${className}s
+{
+    public class Get${className}Request : IRequest<${className}Dto>
+    {
+        public Guid Id { get; set; }
+
+        public Get${className}Request(Guid id) => Id = id;
+    }
+
+    public class ${className}ByIdSpec : Specification<${className}, ${className}Dto>, ISingleResultSpecification
+    {
+        public ${className}ByIdSpec(Guid id) => Query.Where(p => p.Id == id);
+    }
+
+    public class Get${className}RequestHandler : IRequestHandler<Get${className}Request, ${className}Dto>
+    {
+        private readonly IRepository<${className}> _repository;
+        private readonly IStringLocalizer _t;
+
+        public Get${className}RequestHandler(IRepository<${className}> repository, IStringLocalizer<Get${className}RequestHandler> localizer)
+        {
+            _repository = repository;
+            _t = localizer;
+        }
+
+        public async Task<${className}Dto> Handle(Get${className}Request request, CancellationToken cancellationToken) =>
+            await _repository.FirstOrDefaultAsync(
+                (ISpecification<${className}, ${className}Dto>)new ${className}ByIdSpec(request.Id), cancellationToken)
+            ?? throw new NotFoundException(_t["${className} {0} Not Found.", request.Id]);
+    }
+}
+
+// Search${className}sRequest
+namespace ${namespace}.${className}s
+{
+    public class Search${className}sRequest : PaginationFilter, IRequest<PaginationResponse<${className}Dto>>
+    {
+    }
+
+    public class ${className}sBySearchRequestSpec : EntitiesByPaginationFilterSpec<${className}, ${className}Dto>
+    {
+        public ${className}sBySearchRequestSpec(Search${className}sRequest request)
+            : base(request)
+        {
+        }
+    }
+
+    public class Search${className}sRequestHandler : IRequestHandler<Search${className}sRequest, PaginationResponse<${className}Dto>>
+    {
+        private readonly IReadRepository<${className}> _repository;
+
+        public Search${className}sRequestHandler(IReadRepository<${className}> repository)
+        {
+            _repository = repository;
+        }
+
+        public async Task<PaginationResponse<${className}Dto>> Handle(Search${className}sRequest request, CancellationToken cancellationToken)
+        {
+            ${className}sBySearchRequestSpec spec = new(request);
+            return await _repository.PaginatedListAsync(spec, request.PageNumber, request.PageSize, cancellationToken);
+        }
+    }
+}
+
+// Update${className}Request
+namespace ${namespace}.${className}s
+{
+    public class Update${className}Request : IRequest<Guid>
+    {
+        public Guid Id { get; set; }
+        ${generateProperties(properties)}
+    }
+
+    public class Update${className}RequestValidator : CustomValidator<Update${className}Request>
+    {
+        public Update${className}RequestValidator(IRepository<${className}> repository, IStringLocalizer<Update${className}RequestValidator> T)
+        {
+        }
+    }
+
+    public class Update${className}RequestHandler : IRequestHandler<Update${className}Request, Guid>
+    {
+        private readonly IRepositoryWithEvents<${className}> _repository;
+        private readonly IStringLocalizer _t;
+
+        public Update${className}RequestHandler(IRepositoryWithEvents<${className}> repository, IStringLocalizer<Update${className}RequestHandler> localizer)
+        {
+            _repository = repository;
+            _t = localizer;
+        }
+
+        public async Task<Guid> Handle(Update${className}Request request, CancellationToken cancellationToken)
+        {
+            ${className}? item = await _repository.GetByIdAsync(request.Id, cancellationToken);
+            _ = item ?? throw new NotFoundException(_t["${className} {0} Not Found.", request.Id]);
+            item = request.Adapt(item);
+            await _repository.UpdateAsync(item, cancellationToken);
+            return request.Id;
+        }
+    }
+}
+`
+
+            // Gán mã nguồn vào khu vực hiển thị
+            const codeArea = document.getElementById('outputArea');
+            codeArea.textContent = result;
+
+            // Kích hoạt highlight cho mã nguồn
+            hljs.highlightElement(codeArea);
+        }
+
+        function generateProperties(properties) {
+            return properties.map(prop => `public ${prop.type} ${prop.name} { get; set; }`).join('\n\t');
+        }
+    </script>
+</body>
+
+</html>
