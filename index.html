@@ -122,7 +122,8 @@
             const { className, properties } = extractProperties(input);
 
             const nameSpaceArea = document.getElementById("name-space");
-            const namespace = nameSpaceArea.value.trim();
+            let namespace = nameSpaceArea.value.trim();
+            namespace = namespace.replace(/;$/, "");
 
             if (!properties || !className) return;
 
