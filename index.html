@@ -123,7 +123,7 @@
 
             const nameSpaceArea = document.getElementById("name-space");
             let namespace = nameSpaceArea.value.trim();
-            namespace = namespace.replace(/;$/, "");
+            namespace = namespace.replace(/;$/, "").replace("namespace", "");
 
             if (!properties || !className) return;
 
@@ -143,7 +143,7 @@ namespace ${namespace}.${className}s
         {
         }
     }
-
+    
     public class Create${className}RequestHandler : IRequestHandler<Create${className}Request, Guid>
     {
         private readonly IRepositoryWithEvents<${className}> _repository;
